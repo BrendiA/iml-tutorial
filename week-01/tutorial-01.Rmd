@@ -122,7 +122,6 @@ a3 <- ggplot(nrc, aes(x = diversity, y = rank)) +
   geom_smooth(se = FALSE)
 
 # Show plots in a single row
-require(patchwork) # library(patchwork)
 a1 + a2 + a3
 ```
 
@@ -206,7 +205,7 @@ lm_fit %>%
 lm_fit$fit %>% summary()
 ```
 
-### 6 `broom` functions
+### 6 
 
 Report the **coefficients of the model fit**. We can use packages from the `broom` package to extract key information out of the model objects in tidy formats. The `tidy()` function returns the parameter estimates of a `lm` object.
 
@@ -217,10 +216,8 @@ Explain the relationship between the predictors and the response variable. Is th
 broom::tidy(lm_fit)
 ```
 
-Note the coefficient for research.
-
+Note the coefficient for research:
 - Holding all other variables constant, when `research` activities increases by one, `rank` is increased (worse) by 0.5645. 
-
 - Shouldn't higher research be associated with lower (better) rank?
   - It is because rank is based on other variables collected
 - Making plots of these variables against rank, should also show that they have negative association.
