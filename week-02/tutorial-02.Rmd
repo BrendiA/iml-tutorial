@@ -129,7 +129,6 @@ GGally::ggduo(data = nrc_train,
 ```
 
 - `ggduo`: Display two grouped data (e.g. response and predictors) in a plot matrix
-
 - Rank has a strong relationship with research but very weak with the other two
 - There is one outlier with good rank but not so good research rank.
 
@@ -204,7 +203,6 @@ nrc_lm_test_pred <- broom::augment(nrc_lm_fit, new_data = nrc_test) # Test set
 ```
 
 - Training $R^2$ is `r round(rsq(nrc_lm_train_pred, truth = rank, estimate = .pred)$.estimate, 3)`. The model explains about `r round(rsq(nrc_lm_train_pred, truth = rank, estimate = .pred)$.estimate, 3)*100`\% of the variation in rank. 
-
 
 ##### Evaluate model fit using `yardstick` package
 
@@ -281,7 +279,6 @@ p_f + p_e + p_h + p_q
 - There is some moderate heteroskedasticity, with smaller spread at low ranks. 
 - There are long tails, that is, outliers at both small and large values.
 
-
 ```{r fig.width=12}
 # Plot the fitted model against each predictor
 
@@ -346,6 +343,11 @@ nrc_ns_rec <-
   # natural spline
   recipes::step_ns(all_predictors(), deg_free = 3)
 ```
+
+```{r}
+knitr::include_graphics("image/prep-bake.jpeg")
+```
+
 
 ```{r}
 # --- Visually check preprocessing results
