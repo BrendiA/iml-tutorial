@@ -1,0 +1,386 @@
+---
+title: "ETC3250/5250 Tutorial 1 Instructions"
+subtitle: "Introduction to tidymodels"
+author: "prepared by Professor Di Cook"
+date: "Week 1"
+output:
+  html_document:
+    after_body: tutorial-footer.html
+    css: tutorial.css
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE, warning = FALSE}
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  error = FALSE, 
+  collapse = TRUE,
+  comment = "#",
+  fig.height = 4,
+  fig.width = 8,
+  fig.align = "center",
+  cache = FALSE,
+  eval = FALSE, 
+  echo = TRUE
+)
+library(emo)
+
+options(digits = 4)
+```
+
+
+## `r emo::ji("target")` Objective
+
+This tutorial aims to be a refresher on R, and to introduce you to working with `tidymodels`, an organised way to fit models as a part of data analysis.
+
+## `r emo::ji("wrench")` Preparation 
+
+Get the packages installed:
+
+```
+install.packages(c("tidyverse","tidymodels","broom","dotwhisker","patchwork"))
+```
+
+This tutorial also assumes that you have previously used R before. If you are new to R you need to upskill yourself by working through the materials at https://learnr.numbat.space. 
+
+## `r emo::ji("book")` Reading
+
+Read the explanation and arguments for using tidymodels at https://rviews.rstudio.com/2020/04/21/the-case-for-tidymodels/.
+
+Read through [Emil Hitveldt's Linear Regression with tidymodels](https://emilhvitfeldt.github.io/ISLR-tidymodels-labs/linear-regression.html).
+
+## `r emo::ji("waving_hand")` Getting started
+
+If you are in a zoom tutorial, say hello in the chat. If in person, do say hello to your tutor and to your neighbours. 
+
+## `r emo::ji("gear")` Exercise
+
+The `nrc` data contains information collected on Statistics graduate programs in the USA. There are several ranking variables, and indicators of the departments' describing research, student and diversity, summarising many individual variables such as number of publications, student entrance scores and demographics. You can learn more about this data [here](https://en.wikipedia.org/wiki/United_States_National_Research_Council_rankings).
+
+The goal here is to follow the tidy models approach to fit a model for rank against indicators of research. 
+
+### 1
+
+Load the libraries to complete the exercises.
+
+```{r}
+# --- Load libraries
+library(tidyverse)
+library(tidymodels)
+library(broom)
+library(dotwhisker)
+library(patchwork)
+```
+
+### 2
+
+Read the data, simplify the names and select the relevant variables. You will want `rank = R.Rankings.5th.Percentile`, `research = Research.Activity.5th.Percentile`, `student = Student.Support.Outcomes.5th.Percentile` and `diversity = Diversity.5th.Percentile`.
+
+```{r}
+# --- Read in data
+nrc <- read_csv("https://iml.numbat.space/data/nrc.csv")
+```
+
+```{r}
+# --- Simplify names & select relevant variables 
+nrc <- nrc %>% 
+  select(rank = R.Rankings.5th.Percentile,
+         research = Research.Activity.5th.Percentile,
+         student = Student.Support.Outcomes.5th.Percentile,
+         diversity = Diversity.5th.Percentile)
+```
+
+**Data description:**
+- `rank`: Faculty ratings of the quality of each program
+- `research`: Research activities such as no. of publications, no. of citations etc.
+- `student`: Student support & outcomes outcomes
+- `diversity`: Diversity of the faculty and students (demographics)
+
+### 3 Exploring the dataset
+
+Make a plot of the observed response against predictors. What do you learn about the relationship between these variables?
+
+```{r fig.height=3}
+# --- Scatter plot of the data
+
+# Rank (response variable) against research (predictors/independent variables)
+a1 <- ggplot(nrc, aes(x = research, y = rank)) + 
+  geom_point() + 
+  geom_smooth(se = FALSE)
+
+# Rank against student
+a2 <- ggplot(nrc, aes(x = student, y = rank)) +
+  geom_point() +
+  geom_smooth(se = FALSE)
+
+# Rank against diversity
+a3 <- ggplot(nrc, aes(x = diversity, y = rank)) + 
+  geom_point() +
+  geom_smooth(se = FALSE)
+
+# Show plots in a single row
+a1 + a2 + a3
+```
+
+- Relationship between `rank` and `research` is strong & positive
+- Little relationship with either of the other predictors
+
+### 4
+
+#### Why `tidymodels`?
+
+- Good methodology & statistical practice
+  - Work with models that can work well with all kinds of data
+  - Work better with code; better documentation & reproducibility
+- **Uniform interface**: Fit models across different packages which require data to be formatted in different ways
+  - *e.g.* `stats::lm()` have formula interface, `glmnet` does not have
+  - Remembering each R package syntax can be quite frustrating
+
+#### Specifying the model with `parsnip`
+
+**Step 1: Specify the type of model**
+- Specify model (e.g. model that uses linear regression)
+  - Usually based on a mathematical structure
+  
+**Step 2: Specify the engine**
+- Specify package or system to fit them model
+  - Most often reflects software package
+  
+**Step 3: Declare the mode (if required)**
+- Sets the class of the problem; usually influences how output will be collected
+  - *e.g.* If outcome is numeric: `set_mode("regression")`
+  - *e.g.* If outcome is qualitative/categorical: `set_mode("classification")`
+- Step is not required if mode is already set in step 1
+
+
+#### The model
+
+Set up the model. While it is unnecessary to set the mode for a linear regression since it can only be regression, we continue to do it in these labs to be explicit. The specification doesn't perform any calculations by itself. It is just a specification of what we want to do.
+
+```{r}
+# --- Set up model
+lm_mod <- 
+  parsnip::linear_reg() %>% # Step 1: Specify type of model
+  parsnip::set_engine("lm") # Step 2: Specify engine
+
+lm_mod 
+```
+
+- `set_mode()` is not required as mode is set in step 1
+
+```{r, eval=FALSE}
+# --- translate() provide template that shows specific argument values
+lm_mod %>% parsnip::translate()
+
+# --- Example: using rstanarm::stan_glm()
+linear_reg() %>% set_engine("stan") %>% translate()
+```
+
+### 5
+
+**Fit the model**. Once we have the specification we can fit it by supplying a formula expression and the data we want to fit the model on. The formula is written on the form `y ~ x` where `y` is the name of the response and `x` is the name of the predictors. The names used in the formula should match the names of the variables in the data set passed to data.
+
+```{r}
+# --- Fit the model
+
+lm_fit <- 
+  lm_mod %>% # Parsnip model
+  parsnip::fit(rank ~ research + student + diversity, # Formula
+               data = nrc) # Data frame
+
+lm_fit
+```
+
+The result of this fit is a [parsnip](https://parsnip.tidymodels.org) model object. This object contains the underlying fit as well as some parsnip-specific information. If we want to look at the underlying fit object we can access it and summarise it with
+
+```{r}
+lm_fit %>% 
+  purrr::pluck("fit") %>% 
+  summary()
+
+# Or
+lm_fit$fit %>% summary()
+
+# or
+lm_fit %>% extract_fit_engine() %>% summary()
+```
+
+### 6 
+
+Report the **coefficients of the model fit**. We can use packages from the `broom` package to extract key information out of the model objects in tidy formats. The `tidy()` function returns the parameter estimates of a `lm` object.
+
+Explain the relationship between the predictors and the response variable. Is the interpretation of `research`, "the higher the value of research indicates higher value of rank"? This doesn't make sense, why?
+
+```{r}
+# --- Extract estimated coefficients as a tidy table
+broom::tidy(lm_fit)
+```
+
+Note the coefficient for research:
+- Holding all other variables constant, when `research` activities increases by one, `rank` is increased (worse) by 0.5645. 
+- Shouldn't higher research be associated with lower (better) rank?
+  - It is because rank is based on other variables collected
+- Making plots of these variables against rank, should also show that they have negative association.
+
+#### Other common `broom` functions
+
+```{r}
+# --- Other common broom functions
+
+# Extract model fit summaries
+broom::glance(lm_fit)
+
+# Extract residuals & fitted values, adds argument into a data frame
+broom::augment(lm_fit, 
+               new_data = nrc) # For parsnip models, must supply dataset prediction should be performed on 
+```
+
+### 7
+
+Make a dot and whisker plot of the coefficients, to visualise the significance of the different variables. Explain what you learn about the importance of the three explanatory variables for predicting the response.
+
+```{r}
+# Extracts estimated coefficients as a tidy table
+broom::tidy(lm_fit) %>% 
+  # Dot-and-whisker plot
+  dotwhisker::dwplot(dot_args = list(size = 2, color = "black"),
+                     whisker_args = list(color = "black"),
+                     vline = geom_vline(xintercept = 0, colour = "grey50", linetype = 2)) 
+```
+
+`dwplot()` requires 3 main arguments:
+1. Term or variables name(s)
+2. Regression coefficients
+3. Standard error associated with the estimates
+
+**Findings**  
+- `student` and `diversity` overlaps with 0, suggesting that these predictors are not significantly different from zero
+- Coefficient for `research` is significantly different from 0 (high $t$-score) and positive, suggesting that it is the only important variable contributing to the model.
+  - also implies that the higher the research score, the higher the rank.
+
+### 8
+
+Report the fit statistics, using `broom::glance()`. What do you learn about the strength of the fit?
+
+```{r}
+# Extract model fit summaries
+broom::glance(lm_fit)
+```
+
+- The model explains about half the variation (48%) in `rank` as the $R^2$ is 0.4796.
+
+### 9 Model diagnostics
+
+Explore the model fit visually. Plot the predicted values against observed, residuals against fitted, and predicted against each of the predictors. Summarise what you learn about the model fit.
+
+```{r}
+# Extract residuals & fitted values, adds argument into a data frame
+nrc_all <- broom::augment(lm_fit, new_data = nrc)
+```
+
+```{r}
+# Fitted (predicted) vs observed (actual)
+p1 <-
+  ggplot(nrc_all, aes(x = .pred, y = rank)) + 
+  geom_point() + 
+  labs(title = "Observed (actual) vs predicted (fitted)")
+
+# Residual vs. fitted (predicted) model
+p2 <- 
+  ggplot(nrc_all, aes(x = .pred, y = .resid)) + 
+  geom_point() + 
+  labs(title = "Residual vs. fitted")
+
+require(patchwork)
+p1 + p2
+```
+
+```{r}
+# --- Extract outliers 
+nrc_all %>% filter(.pred < 20 & rank > 40)
+```
+
+```{r fig.height=3}
+# Observed (actual) vs predicted (fitted)
+
+# Research
+p3 <- 
+  ggplot(nrc_all, aes(x = research, y = .pred)) + 
+  geom_point()
+
+# Student outcomes
+p4 <-
+  ggplot(nrc_all, aes(x = student, y = .pred)) +
+  geom_point()
+
+# Diversity
+p5 <- 
+  ggplot(nrc_all, aes(x = diversity, y = .pred)) + 
+  geom_point()
+
+p3 + p4 + p5
+```
+
+### 10 Generating a new data set for predictions
+
+Generate a grid of new data values to predict, with all combinations of `research = c(10, 40, 70)`, `student = c(10, 40, 70)`,
+`diversity = c(10, 40, 70)`. Predict these values, as point and confidence intervals.
+
+```{r}
+# --- Predict new data
+
+# Generate new data set (used expand_grid() instead of expand.grid())
+# See https://tidyr.tidyverse.org/reference/expand_grid.html
+new_points <- expand_grid(research = c(10, 40, 70), 
+                          student = c(10, 40, 70),
+                          diversity = c(10, 40, 70))
+
+# Predict new data set using current model
+mean_pred <- predict(lm_fit, new_data = new_points)
+
+# Derive confidence interval
+conf_int_pred <- predict(lm_fit, 
+                         new_data = new_points, 
+                         type = "conf_int") # confidence interval
+
+
+# Extract residuals & fitted values, adds argument into a data frame
+new_points <- broom::augment(lm_fit, new_data = new_points)
+```
+
+Goal: Building models that generate predictions for future, yet-to-be-seen data.
+
+### 11
+
+Make a plot of predicted values vs research for the observed data and the new data, with new data coloured differently. How do the predicted values compare?
+
+```{r}
+# Plot predicted data, with observed data
+ggplot() + 
+  geom_point(data = nrc_all, aes(x = research, y = .pred)) +
+  geom_point(data = new_points, aes(x = research, y = .pred), colour = "red")
+```
+
+- The new points are at just three values of research, so you can see the vertical stripes here.
+- The predicted ranks for these points are more varied than the observed data.
+- Its likely that this is due to the combination of values in the new data being different than what exists in the observed data.
+- It would be a good idea to plot the predictors against each other to confirm that this is true.
+
+## `r emo::ji("stop_sign")` Wrapping up
+
+Talk to your tutor about what you think you learned today, what was easy, what was fun, what you found hard.
+
+## `r emo::ji("owl")` Got a problem you can't solve?
+
+It is always good to try to suspect something simple is going wrong first. Most likely the error is a simple one, like a missing ")" or ",".
+
+For deeper answers to questions about packages, analyses and functions, compiling an Rmarkdown document, or simply the error that is being generated, you can usually find an answer using google.
+
+If you are still having problems, and you need someone to help you, the first step is to explain the problem clearly. Make a [reproducible example of your problem, following the guidelines here](https://learnr.numbat.space/chapter3#3). Bring this to a
+consultation, or post on the discussion forum on moodle.
+
+Externally, [Q/A site: http://stackoverflow.com](http://stackoverflow.com) is a great place to
+get answers to tougher questions about R and also data analysis. You always need to check that someone hasn't asked it before, the answer might already be available for you. Remember these people that kindly answer questions on stackoverflow have day jobs too, and do this community support as a kindness to all of us.
