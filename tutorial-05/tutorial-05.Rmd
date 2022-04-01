@@ -1,0 +1,630 @@
+---
+title: "ETC3250/5250 Tutorial 5 Instructions"
+subtitle: "Visualising high-dimensional data"
+author: "prepared by Professor Di Cook"
+date: "Week 5"
+output:
+  html_document:
+    after_body: tutorial-footer.html
+    css: tutorial.css
+---
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE, warning = FALSE}
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  error = FALSE, 
+  collapse = TRUE,
+  comment = "#",
+  fig.height = 4,
+  fig.width = 8,
+  fig.align = "center",
+  cache = FALSE
+)
+library(emo)
+```
+
+# 🎯 Objective
+
+The objectives for this week are to 
+
+* learn to use the tour to develop intuition about multiple dimensions
+* recognise features in high dimensions including multivariate outliers, clustering and linear and nonlinear dependence
+* use the manual tour for interpretation, to assess variable importance
+
+# 🔧 Preparation 
+
+Make sure you have these packages installed:
+
+```
+install.packages(c("tidyverse", "tourr", "MASS", "spinifex", "mvtnorm", "tidymodels", "discrim", "broom"))
+```
+
+# 📖 Reading 
+
+* Reading material on high-dimensional data visualisation on moodle
+
+# 👋 Getting started
+
+If you are in a zoom tutorial, say hello in the chat. If in person, do say hello to your tutor and to your neighbours. 
+
+# Motivation for `tourr` package
+
+* Display low-dimensional projections from high-dimensional data, to explore shape of multivariate distributions
+
+* Gets us beyond single statistic data projection such PCA and LDA in the previous tutorials
+  * See multiple data projections, which can reveal many different aspects of the data
+
+* Outliers can be identified
+  * Separated from other observations *or*
+  * Move on different paths from other points
+
+# Different tours
+
+**Grand tour**: Projections (or bases) are randomly selected, and gives a global overview of the distribution
+
+* A "movie" of low-dimensional projections that comes arbitrarily close to showing all possible low-dimensional projections
+  * Useful for understanding the overview a dataset
+
+**Guided tour**: Projections (or bases) is optimised using an index function
+
+* Tour moves towards more 'interesting' views of the distribution as the animation progresses
+  * "interestingness" is measured by index function, which will get maximised along the tour path
+* Usually see local maxima along the way
+
+**4 indices quantifies interestingness of a data projection**
+  (1) LDA (`lda_pp()`)
+  (2) holes (`holes()`)
+  (3) central mass (`cm()`)
+  (4) PDA (`pda_pp`)
+  
+# 💬 Class discussion exercises
+
+```{r setup}
+library(tidyverse)
+library(tourr)
+library(tidymodels)
+library(plotly)
+library(htmltools)
+library(discrim)
+library(MASS)
+
+# Set default theme for document
+ggplot2::theme_set(theme_bw())
+```
+
+---
+
+In tour 1, how many clusters do you see? 
+
+```{r, include = FALSE}
+# This is code that YOU CAN RUN YOURSELF to see the tour 
+olive <- read_csv("http://www.ggobi.org/book/data/olive.csv") %>%
+  dplyr::select(-`...1`)
+```
+
+* Data consists of % composition of fatty acids found in the lipid fraction of Italian olive oils
+  * Data is used to determine authenticity of an olive oil 
+
+```{r, eval = FALSE, echo = TRUE}
+animate_xy(olive[, 3:10], axes = "off")
+```
+
+* Not a straightforward one, no exact answers
+
+---
+
+In tour 2, where three classes have been coloured, how many additional clusters do you see? 
+
+```{r eval=FALSE, echo=TRUE}
+# This is code that YOU CAN RUN YOURSELF to see the tour, 
+# but its not necessary to run in order to do the exercise 
+
+animate_xy(olive[, 3:10], axes = "off", col = olive$region)
+```
+
+* Three main clusters can be identified after colouring the points by the different groups
+* Region 2 (red) appears to be in two separate small clusters 
+* Some outliers can be identified - *e.g.* an outlier in the red group
+  * outliers can be identified as separated from other observations *or*
+  * move on different paths from the other points
+
+---
+
+```{r eval=FALSE, echo=FALSE, message=FALSE}
+# --- Code to generate tour 1
+
+set.seed(20190331)
+
+bases <-
+  save_history(olive[,3:10],
+               grand_tour(2), 
+               start = matrix(c(1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+                              ncol = 2,
+                              byrow = TRUE), 
+               max = 15)
+
+# Re-set start bc seems to go awry
+bases[, , 1] <-
+  matrix(c(1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+         ncol = 2,
+         byrow = TRUE)
+
+tour_path <- interpolate(bases, 0.1)
+
+d <- dim(tour_path)
+
+olive_std <- tourr::rescale(olive[,3:10])
+
+mydat <- NULL; 
+
+for (i in 1:d[3]) {
+  fp <- as.matrix(olive_std) %*% matrix(tour_path[,,i], ncol=2)
+  fp <- tourr::center(fp)
+  colnames(fp) <- c("d1", "d2")
+  mydat <- rbind(mydat, cbind(fp, rep(i+10, nrow(fp))))
+}
+
+colnames(mydat)[3] <- "indx"
+
+df <- as_tibble(mydat) 
+
+p <- ggplot() +
+       geom_point(data = df, aes(x = d1, y = d2, 
+                                 frame = indx), size=1) +
+       theme_void() +
+       coord_fixed() +
+  theme(legend.position="none")
+
+pg <-
+  ggplotly(p, width = 400, height = 400) %>% 
+  animation_opts(200, redraw = FALSE, 
+                 easing = "linear", transition=0)
+# pg
+save_html(pg, file = "tour1.html")
+```
+
+```{r eval=FALSE, echo=FALSE}
+# --- Code to generate tour 2
+
+df <- df %>%
+  mutate(region = factor(rep(olive$region, d[3])))
+
+p <-
+  ggplot() +
+  geom_point(data = df,
+             aes(x = d1, y = d2, colour = region, 
+                 frame = indx), size = 1) +
+  scale_colour_brewer("", palette = "Dark2") +
+  theme_void() +
+  coord_fixed() +
+  theme(legend.position = "none")
+
+pg <-
+  ggplotly(p, width = 400, height = 400) %>% 
+  animation_opts(200, redraw = FALSE, 
+                 easing = "linear", transition=0)
+#pg
+save_html(pg, file = "tour2.html")
+```
+
+# ⚙️ Exercises 
+
+## Exercise 1
+
+Data with different variance-covariances
+
+Can you see the difference between the two sets better now? You should see that one group has roughly the same spread of observations for each group, in any combination of the variables. The other has some combinations of the variables where the spread is different for each group. 
+
+**Set A** has equal variance-covariance between groups, $\Sigma$: 
+
+$$\Sigma = \begin{bmatrix} 3.0&0.2&-1.2&0.9\\
+0.2&2.5&-1.4&0.3\\
+-1.2&-1.4&2.0&1.0\\
+0.9&0.3&1.0&3.0\\
+\end{bmatrix}$$
+
+* Variance between groups are about the same
+* Some pairs of the variables have little correlation, as shown by the small covariance
+
+and **set B** has different variance-covariance between groups, $\Sigma_1, \Sigma_2, \Sigma_3$:
+
+$\Sigma_1 = \Sigma$
+
+$$\Sigma_2 = \begin{bmatrix}3.0&-0.8&1.2&0.3\\
+-0.8&2.5&1.4&0.3\\
+1.2&1.4&2.0&1.0\\
+0.3&0.3&1.0&3.0\\
+\end{bmatrix}$$
+
+* Different covariance, but with the same variance
+
+$$\Sigma_3 = \begin{bmatrix}2.0&-1.0&1.2&0.3\\
+-1.0&2.5&1.4&0.3\\
+1.2&1.4&4.0&-1.2\\
+0.3&0.3&-1.2&3.0\\
+\end{bmatrix}$$
+
+* On the diagonal, variance differ between each group 
+
+This code is used simulate the data:
+
+```{r echo=TRUE, eval=FALSE}
+set.seed(20200416)
+library(mvtnorm)
+
+# Variance-covariance matrix
+vc1 <- matrix(c(3, 0.2, -1.2, 0.9, 0.2, 2.5, -1.4, 0.3, -1.2, -1.4, 2.0, 1.0, 0.9, 0.3, 1.0, 3.0),
+              ncol = 4,
+              byrow = TRUE)
+
+vc2 <- matrix(c(3, -0.8, 1.2, 0.3, -0.8, 2.5, 1.4, 0.3, 1.2, 1.4, 2.0, 1.0, 0.3, 0.3, 1.0, 3.0), 
+              ncol = 4,
+              byrow = TRUE)
+
+vc3 <- matrix(c(2.0, -1.0, 1.2, 0.3, -1.0, 2.5, 1.4, 0.3, 1.2, 1.4, 4.0, -1.2, 0.3, 0.3, -1.2, 3.0), 
+              ncol = 4,
+              byrow = TRUE)
+
+# Mean of each class for each sample
+m1 <- c(0, 0, 3, 0)
+m2 <- c(0, 3, -3, 0)
+m3 <- c(-3, 0, 3, 3)
+
+# Sample size
+n1 <- 85
+n2 <- 104
+n3 <- 48
+```
+
+```{r}
+# --- Set A 
+
+# Generate multivariate normal distributions with same variance-covariance matrix (vc1)
+setA <- rbind(rmvnorm(n1, m1, vc1), 
+              rmvnorm(n2, m2, vc1),
+              rmvnorm(n3, m3, vc1))
+
+# Convert matrix to data frame
+setA <- data.frame(setA)
+
+# Add classes for each sample
+setA$class <- c(rep("1", n1), rep("2", n2), rep("3", n3))
+```
+
+```{r}
+# --- Set B
+
+# Generate multivariate normal distributions with difference variance covariance matrix (vc1, vc2, vc3)
+setB <- rbind(rmvnorm(n1, m1, vc1), 
+              rmvnorm(n2, m2, vc2),
+              rmvnorm(n3, m3, vc3))
+
+# Convert to data frame
+setB <- data.frame(setB)
+
+# Add classes for each sample
+setB$class <- c(rep("1", n1), rep("2", n2), rep("3", n3))
+```
+
+```{r, eval=FALSE}
+library(GGally)
+
+# Can help in understanding variance covariance matrix
+ggscatmat(setA, columns = 1:4, color = "class")
+
+ggscatmat(setB, columns = 1:4, color = "class")
+```
+
+
+**Set A**
+* Based on the scatterplot matrix, Class 2 (green) & 3 (blue) should be the most different
+  * See `X2` vs. `X3`, class 2 & 3 are well separated 
+  
+**Set B**
+* Class 1 (red) & class 2 (green) are elliptical in shape but oriented very differently
+
+```{r}
+ggplot(data = setA, aes(x = X4, y = X3, colour = class)) +
+  geom_point() +
+  stat_ellipse()
+
+ggplot(data = setB, aes(x = X2, y = X4, colour = class)) +
+  geom_point() +
+  stat_ellipse()
+```
+
+
+You can use this code to run the tour (RUN CODE ONE LINE AT A TIME!):
+
+```{r, eval=FALSE}
+library(tourr)
+
+# Set A: Equal variance-covariance between groups
+animate_xy(setA[, 1:3], col = setA$class)
+```
+
+* Spread for each group is rather similar due to equal variance-covariance between groups
+* Three groups appears to be well separated here, with the red group being the most distinct
+
+```{r, eval=FALSE}
+# Set B: Different variance-covariance between groups
+animate_xy(setB[, 1:3], col = setB$class)
+```
+
+* Set B has two groups where the variance-covariance is elliptical in shape but oriented very differently.
+* Again, the red group is very well distinct from the other two groups
+
+---
+
+```{r, eval=FALSE}
+# --- Example 
+vc <- matrix(c(1, 0.95, 0.95, 1), ncol = 2, byrow = TRUE)
+m <- c(0,2)
+n <- 50
+
+as_tibble(rmvnorm(n, m, vc)) %>% 
+  ggplot(aes(x = V1, y = V2)) +
+  geom_point() +
+  stat_ellipse()
+```
+
+## Exercise 2 
+
+Exploring for class separations, heterogeneous variance-covariance and outliers
+
+Remember the chocolates data? The chocolates data was compiled by students in a previous class of Prof. Cook, by collecting nutrition information on the chocolates as listed on their Internet sites. All numbers were normalised to be equivalent to a 100g serving. Units of measurement are listed in the variable name. You are interested in answering "How do milk and dark chocolates differ on nutritional values?"
+
+```{r echo=TRUE}
+choc <- read_csv("http://iml.numbat.space/data/chocolates.csv")
+
+choc <- choc %>%
+  rename(Cl = Calories, 
+         CF = CalFat,
+         TF = TotFat_g,
+         SF = SatFat_g,
+         Ch = Chol_mg,
+         Na = Na_mg,
+         Cb = Carbs_g,
+         Fb = Fiber_g,
+         Sg = Sugars_g,
+         Pr = Protein_g
+         )
+
+# Standardise variables 
+choc_std <- choc %>%
+  mutate(across(where(is.numeric), ~ (.x - mean(.x))/sd(.x)))
+
+# Convert response to factor
+choc_std <- choc_std %>%
+  mutate(Type = as.factor(Type))
+```
+
+* We usually standardise before any classification problems
+
+### a.
+
+Examine all of the nutritional variables, relative to the chocolate type, using a grand tour (`tourr::animate_xy()`) and a guided tour (look up the help for `tourr::guided_tour` to see example of how to use the `lda_pp` index). Explain what you see in terms of differences between groups.
+
+*Grand tour*: Projections randomly selected
+
+```{r, eval = FALSE}
+animate_xy(choc_std[,5:14], col=choc$Type)
+```
+
+* There are some differences between the two groups, that they are almost separated, and some strong linear associations, in some combinations of variables.
+
+```{r}
+animate_xy(choc_std[,5:14], 
+           guided_tour(lda_pp(choc_std$Type)), 
+           col = choc_std$Type)
+```
+
+*Guided tour*: Projections are based on optimising an index function
+
+* Tour moves towards more 'interesting' views of the distribution as the animation progresses
+
+4 Main indices that quantifies interesting
+*(1) LDA*
+(2) Holes
+(3) central mass
+(4) PDA
+
+* The guided tour with LDA index stops at a projection where most milk chocolates are separated from most dark chocolates, although there is no gap between the two clusters.
+
+### b. 
+
+From the tour, should you assume that the variance-covariance matrices of the two types of chocolates is the same?
+
+* The variance-covariance matrices are clearly different between the two groups.
+
+Regardless of your answer, conduct a linear discriminant analysis, on the standardised chocolates data. Because the variables are standardised the magnitude of the coefficients of the linear discriminant can be used to determine the most important variables. What are the three most important variables? What are the four least important variables? Look at the data with a grand tour of only the three important variables, and discuss the differences between the groups. 
+
+```{r}
+# --- Conduct LDA
+library(discrim)
+library(MASS)
+
+lda_mod <- discrim_linear() %>% 
+  set_engine("MASS", prior = c(0.5, 0.5)) %>% # Set equal prior probability
+  translate()
+
+choc_lda_fit <- 
+  lda_mod %>% 
+  fit(Type ~ ., 
+      data = choc_std[, 4:14])
+
+choc_lda_fit
+```
+
+* Just like PCA, LDA ranks axes in order of importance
+  * LD1 accounts for the most variation between groups, LD2 does the second best jobs & so on & so forth
+* Therefore, the new axes created by LDA have *loading scores* that tells us which variables had the largest influence on each axis
+* The three most important variables are Fiber_g, Na_mg and TotFat_g - *i.e.* mostly contributed to the separation between the groups
+  * In terms of classification, these 3 variables should be enough; *i.e.* we'd probably get as good a model with those 3 variables
+* Using just the three most important variables in the tour, you can see the differences between the two groups more clearly.
+
+### c.
+
+Filter the data to only focus on the milk chocolates. Explain what you see in terms of association between variables, and outliers. (Note that sometimes the guided tour using the `cmass` index can be useful for detecting multivariate outliers, but it doesn't help here. The grand tour alone is the best for spotting them.)
+
+```{r}
+# Look at the 3 most important variables
+animate_xy(choc_std[, c(7, 10, 12)], col = choc$Type)
+```
+
+* The guided tour with LDA index stops at a projection where most milk chocolates are separated from most dark chocolates, although there is no gap between the two clusters.
+* Each group appears to have outliers 
+* Some dark chocolates are classified as milk chocolates & vice versa
+* Sodium, fibre and total fat appears to be important variable
+
+```{r}
+# Milk chocolates only - using cmass index
+animate_xy(choc_std[choc_std$Type == "Milk", 5:14])
+animate_xy(choc_std[choc_std$Type == "Milk", 5:14], 
+           guided_tour(cmass()))
+```
+
+* Some white chocolates have really different characteristics as other white chocolates
+
+## Exercise 3
+
+Assessing variable importance with the manual tour. This example uses the `olive` oils data. 
+
+### Data description
+
+* Data consists of % composition of fatty acids found in the lipid fraction of Italian olive oils
+  * Data is used to determine authenticity of an olive oil 
+
+### a. 
+
+Read in the data. Keep `region` and the fatty acid content variables. Standardize the variables to have mean and variance 1.
+
+```{r echo=TRUE, eval=FALSE}
+olive <- read_csv("http://ggobi.org/book/data/olive.csv") %>%
+  dplyr::select(-`...1`, -area) %>%
+  mutate(region = factor(region))
+
+# Standardise variables
+olive_std <- olive %>%
+  mutate(across(where(is.numeric), ~ (.x - mean(.x)) / sd(.x)))
+```
+
+### b. 
+
+Fit a linear discriminant analysis (LDA) model, to a training set of data. This will produce a 2D discriminant space because there are three variables. Based on the coefficients which variable(s) are important for the first direction, and which are important for the second direction?
+
+```{r}
+library(discrim)
+library(MASS)
+
+set.seed(775)
+olive_split <- initial_split(olive_std, 2/3, strata = region)
+olive_train <- training(olive_split)
+olive_test <- testing(olive_split)
+
+lda_mod <- 
+  discrim_linear() %>% 
+  set_engine("MASS", prior = c(1/3, 1/3, 1/3)) %>% 
+  translate()
+
+olive_lda_fit <- 
+  lda_mod %>% 
+  fit(region ~ ., 
+      data = olive_train)
+
+olive_lda_fit
+```
+
+* The new axes created by LDA have *loading scores* that tells us which variables had the largest influence on each axis
+* For LD1, `eicosenoic` has high coefficient & is important in the *first direction* - *i.e.* contributed the most to the separation between the regions
+* `oleic` & `linoleic` are important in the *second direction*
+  * These 3 variables are the ones that are used for LDA
+
+### c. 
+
+Using a manual tour, with the `play_manual_tour` function from the `spinifex` package, , starting from the projection given by the discriminant space explore the importance of (i) `eicosenoic` for separating region 1, (ii) `oleic` and `linoleic` for separating regions 2 and 3, (iii) and that `stearic` is not important for any of the separations.
+
+```{r}
+# Collect the projection giving best separation, 
+# to use with manual tour for assessing importance
+lda_proj <- olive_lda_fit$fit$scaling
+```
+
+#### i.
+
+```{r}
+# Using spinifex pacakge to change coefficients of a single variable
+library(spinifex)
+
+# Generate the manual path examining the importance of eicosenoic
+path1 <- manual_tour(basis = lda_proj, 
+                     manip_var = 8) # 8th variable in the dataset 
+
+ggt <-
+  ggtour(path1, olive_std[,2:9], angle = 0.05) + 
+  proto_point(aes_args = list(color = olive_std$region)) + 
+  proto_basis()
+
+animate_plotly(ggt)
+```
+
+* When eicosenoic is removed from the projection, region 1 observations get mixed/confused with the other regions.
+
+#### ii.
+
+```{r}
+# Generate the manual path examining the importance of oleic
+path1 <- manual_tour(basis = lda_proj, 
+                     manip_var = 4) 
+
+ggt <- ggtour(path1, olive_std[,2:9], angle = 0.05) + 
+        proto_point(
+          aes_args = list(color =
+                olive_std$region)) + 
+  proto_basis()
+
+animate_plotly(ggt)
+```
+
+* When `oleic` is removed regions 2 and 3 get confused, 
+* BUT when `oleic` is 100% in the projection, the separation is also a little worse.
+* This means that a combination of `oleic` and `palmitic` is better for separating the two groups.
+
+```{r}
+# Generate the manual path examining the importance of linoleic
+path1 <- manual_tour(basis = lda_proj, 
+                     manip_var = 5) # 5th variable in dataset
+
+ggt <-
+  ggtour(path1, olive_std[,2:9], angle = 0.05) + 
+  proto_point(aes_args = list(color = olive_std$region)) + 
+  proto_basis()
+
+animate_plotly(ggt)
+```
+
+* It is even more interesting when `linoleic` contributes more to the projection because the separation between groups is even better. 
+* LDA doesn't use gaps between clusters to build the separation, it uses the groups means, and makes the assumption of equal variance-covariance, so it misses this improved solution.
+
+#### iii.
+
+```{r}
+# Generate the manual path examining the importance of stearic
+# This variable is not important
+path1 <- manual_tour(basis = lda_proj, 
+                     manip_var = 3) # stearic
+
+ggt <-
+  ggtour(path1, olive_std[,2:9], angle = 0.05) + 
+  proto_point(aes_args = list(color = olive_std$region)) + 
+  proto_basis()
+
+animate_plotly(ggt)
+```
+
+The separation between all groups is better when stearic does NOT contribute to the projection.
+
+#### © Copyright 2022 Monash University
+
+
