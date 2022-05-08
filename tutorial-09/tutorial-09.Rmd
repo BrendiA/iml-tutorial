@@ -1,0 +1,510 @@
+---
+title: "ETC3250/5250 Tutorial 9 Instructions"
+subtitle: "Model choice, and regularisation"
+author: "prepared by Professor Di Cook"
+date: "Week 9"
+output:
+  html_document:
+    after_body: tutorial-footer.html
+    css: tutorial.css
+---
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE, warning = FALSE}
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  error = FALSE, 
+  collapse = TRUE,
+  comment = "#",
+  fig.height = 4,
+  fig.width = 8,
+  fig.align = "center",
+  cache = FALSE
+)
+```
+
+
+# 🎯 Objective
+
+The objectives of this tutorial are to
+
+* Conduct variable selection and examine importance
+* Practice methods for choosing models
+* Fit a regularised model
+
+# 1. Choosing variables
+
+Work your way through the textbook lab 6.5.1 Best Subset Selection, and the forward stepwise procedure in 6.5.2, then answer these questions. (Note that there is no `tidymodels` option for either of these options at the moment.)
+
+## a. 
+
+The `regsubsets()` function (part of the `leaps` library) performs best subset selection by identifying the best model that contains a given number of predictors, where best is quantified using RSS. By default it only examines up to 8 variable models. Which variables make the best 8 variable model?
+
+```{r setup}
+library(knitr)
+library(tidyverse)
+library(ISLR)
+library(skimr)
+library(leaps)
+library(patchwork)
+library(rsample)
+library(tidymodels)
+library(glmnet)
+
+# Set default theme for document
+ggplot2::theme_set(theme_bw())
+```
+
+```{r}
+# Read-in data
+Hitters <- ISLR::Hitters
+
+# Take a look at the data
+glimpse(Hitters)
+```
+
+```{r}
+# Remove missing values on Salary
+Hitters <- Hitters %>%
+  filter(!is.na(Salary))
+
+# Best Subset selection (default arguments)
+regfit.full <- leaps::regsubsets(Salary ~ ., 
+                                 data = Hitters,
+                                 nbest = 1,
+                                 nvmax = 8, # max no. of variables
+                                 method = "exhaustive") 
+```
+
+```{r eval=FALSE}
+fit <- summary(regfit.full)
+
+# Indicate which variable(s) are in each model
+fit$outmat
+```
+
+```{r}
+coef(regfit.full, id = 1) # Model containing 1 variables
+coef(regfit.full, id = 8) # Model containing 8 variables
+```
+
+## b. Best subset selection
+
+Set the max number of variables to be 19, by adding the argument `nvmax=19`. Plot the model fit diagnostics for the best model of each size. What would these diagnostics suggest about an appropriate choice of models? Do your results compare with the text book results? Why not?
+
+```{r}
+# Set max no. of variables in a model = 19
+regfit.full <- 
+  regsubsets(Salary ~ .,
+             data = Hitters,
+             nbest = 1, # For each subset M, select 1 model with smallest RSS
+             nvmax = 19) 
+
+reg.summary <- summary(regfit.full)
+reg.summary$outmat
+```
+
+```{r}
+# Extract metrics for each model
+models <-
+  tibble(nvars = 1:19, 
+         rsq = reg.summary$rsq, # R-squared
+         rss = reg.summary$rss, # Residual sum of squares
+         adjr2 = reg.summary$adjr2, # Adjusted R squared
+         cp = reg.summary$cp, # Mallows CP (= AIC in linear regression)
+         bic = reg.summary$bic) # BIC
+
+# Plot model fit diagnostics for each metric
+models %>% 
+  pivot_longer(cols = !nvars,
+               names_to = "metric",
+               values_to = "score") %>% 
+  ggplot(aes(x = nvars, y = score)) +
+  geom_line() +
+  # geom_point() +
+  facet_wrap(~ metric,
+             scales = "free_y")
+```
+
+* BIC would suggest 6 variables. (It gets worse after 6, and then better at 8, and then worse again.) 
+  * The textbook suggests 6 variables, so similar results here.
+  
+```{r}
+# Model with 6 predictors
+coef(regfit.full, id = 6)
+```
+
+## c. Forward stepwise selection
+
+Fit forward stepwise selection. How would the decision about best model change?  
+
+```{r}
+# Forward stepwise selection
+regfit.fwd <- regsubsets(Salary ~ .,
+                         data = Hitters,
+                         nvmax = 19,
+                         method = "forward") 
+
+reg.fwd.summary <- summary(regfit.fwd)
+
+reg.fwd.summary$outmat
+```
+
+```{r}
+# Extract RSS
+# d <- tibble(nvars = 0:19, rss = regfit.fwd$rss)
+
+# Extract metrics 
+d <- 
+  tibble(nvars = 1:19, 
+         rsq = reg.fwd.summary$rsq, # R-squared
+         rss = reg.fwd.summary$rss, # Residual sum of squares
+         adjr2 = reg.fwd.summary$adjr2, # Adjusted R squared
+         cp = reg.fwd.summary$cp, # Mallows CP (= AIC in linear regression)
+         bic = reg.fwd.summary$bic) # BIC
+```
+
+
+```{r}
+d %>% 
+  pivot_longer(cols = rsq:bic,
+               names_to = "metric",
+               values_to = "score") %>% 
+  ggplot(aes(x = factor(nvars), y = score)) +
+  geom_line(aes(group = 1)) +
+  # geom_point() +
+  facet_wrap(~ metric, 
+             scales = "free_y")
+```
+
+* Using the *elbow* method, look for decreasing values, and when it flattens out. 
+  * The suggestion is at 6 
+
+# 2. Training and testing sets with variable selection
+
+## a. 
+
+Break the data into a 2/3 training and 1/3 test set.
+
+```{r}
+# set.seed(1)
+set.seed(283190)
+split <- initial_split(Hitters, 2/3)
+h_tr <- training(split)
+h_ts <- testing(split)
+```
+
+## b. 
+
+Fit the best subsets. Compute the mean square error for the test set. Which model would it suggest? Is the subset of models similar to produced on the full data set? Do your results compare with the text book results? Why not?
+
+```{r}
+# Fit best subset selection using *training set*
+regfit.best <-
+  leaps::regsubsets(Salary ~ .,
+             data = h_tr,
+             nvmax = 19,
+             method = "exhaustive")
+
+summary(regfit.best)$outmat
+```
+
+```{r}
+# --- Compute MSE for the test set
+
+# Create matrix for *test set*
+test.mat <- model.matrix(Salary ~ ., data = h_ts)
+
+# Create container to store MSE
+val.errors <- numeric(19)
+
+for (i in 1:19) {
+  
+  # For each 'best' model selected by best subset selection
+  coefi <- coef(regfit.best, id = i) 
+  
+  # Compute predictions
+  pred <-
+    # Test matrix * multiply by corresponding coefficients of the model
+    test.mat[, names(coefi)] %*% coefi
+  
+  # Compute MSE = 1/n * sum((actual - predictions)^2)
+  val.errors[i] <- mean((h_ts$Salary - pred)^2)
+}
+
+# MSE for all the 19 models
+val.errors 
+```
+
+```{r}
+d2 <- tibble(nvars = 1:19, err = val.errors)
+
+d2 %>% 
+  ggplot(aes(x = factor(nvars), 
+             y = err,
+             group = 1)) + 
+  geom_line() 
+```
+
+* Model selection suggests 3 predictors is the best 
+  * We used *test error* as the measure for choosing models, and the different metric could produce different results.  
+* Interestingly, if a *different random seed* for splitting the data is used, you might get a different best model. 
+  * In this case, you should select the variables that consistently get used in the best model from different seeds.
+  * $\therefore$ we can use cross-validation to mitigate this variance
+
+```{r}
+coef(regfit.best, id = which.min(val.errors)) # 2(a) Using test error
+coef(regfit.full, id = 10) # 1(b) Using Full set
+```
+
+* The selected variables are the same as the 10 variable model fitted to the full set. 
+  * The coefficients in the fitted model differ a little.
+
+
+# 3. Cross-validation with variable selection
+
+It is said that 10-fold cross-validation is a reasonable choice for dividing the data. What size data sets would this create for this data? Argue whether this is good or bad. 
+
+```{r}
+# --- Create own prediction (\hat{y}) function 
+
+# For running predict on regsubsets objects
+
+predict.regsubsets <- function(object, newdata, id, ...) {
+  
+  # Extract model formula
+  form <- as.formula(object$call[[2]])
+
+  # Create model matrix based on formula based on the test set
+  # Converts categorical variables to dummy variables
+  mat <- model.matrix(form, data = newdata)
+
+  # Extract \beta coefficients
+  coefi <- coef(object, id = id)
+
+  # Extract name of predictors
+  xvars <- names(coefi)
+
+  # X %*% \beta
+  mat[, xvars] %*% coefi
+}
+
+```
+
+
+```{r}
+set.seed(20190513)
+
+# 5-fold cross validation
+k <- 5
+
+# Create the folds
+folds <- caret::createFolds(Hitters$Salary, k = k) 
+
+# Create a container to store error for the different folds
+cv.errors <- matrix(NA, k, 19, dimnames = list(NULL, paste(1:19)))
+
+for (j in 1:k) {
+  
+  # For each fold, run best subset selection 
+  best.fit <- regsubsets(Salary ~ ., data = Hitters[folds[[j]], ], nvmax = 19)
+  
+  for(i in 1:19) {
+    
+    # Compute predictions for the model in the jth fold with i no. of variables
+    pred <- predict(best.fit, Hitters[folds[[j]],], id = i)
+    
+    # Compute MSE for the jth fold with i variables in the model
+    cv.errors[j, i] <- mean((Hitters$Salary[folds[[j]]] - pred) ^ 2)
+    }
+}
+
+# Put data in long form to plot effectively
+df <-
+  as_tibble(cv.errors) %>%
+  pivot_longer(cols = everything(),
+               names_to = "nvars",
+               values_to = "error") %>%
+  arrange(as.numeric(nvars)) %>% 
+  mutate(nvars = as.numeric(nvars),
+         cv_set = rep(1:5, 19))
+
+df %>% 
+  ggplot(aes(x = nvars,
+             y = error,
+             colour = factor(cv_set))) +
+  geom_line() +
+  # geom_point() +
+  theme(legend.position = "right")
+```
+
+
+# 4. Regularisation for variable selection
+
+Here we will use lasso to fit a regularised regression model and compare the results with the best subset model.
+
+## a.
+
+Using your results from questions 1-3, fit the best least squares model, to your training set. Write down the mean square error and estimates for the final model. We'll use these to compare with the lasso fit.
+
+```{r}
+# From Q2b: Best subset selection
+min(val.errors)
+
+# Best model (lowest MSE) for best subset selection
+coef(regfit.best, which.min(val.errors))
+```
+
+## b.
+
+Fit the lasso to a range of $\lambda$ values. Plot the standardised coefficients against $\lambda$. What does this suggest about the predictors?
+
+```{r}
+# Range of lambda values
+grid <- 10^seq(from = 10, to = -2, length = 100)
+
+# Matrix of data
+x <- model.matrix(Salary ~ ., h_tr)[, -1]
+
+# Vector of response variable
+y <- h_tr$Salary
+
+# Fit lasso regression
+# Formula notation not accepted, pass x & y separately
+lasso.mod <- 
+  glmnet(x, # Predictors (n * p)
+         y, # Response (n * 1)
+         alpha = 1,
+         lambda = grid)
+
+# Need a coefficient matrix of 100(nlambda)x19(p)
+# as.matrix function converts sparse format into this
+coeffs <- as.matrix(lasso.mod$beta) 
+
+coeffs <- bind_cols(var = rownames(coeffs), coeffs)
+
+# Convert to long format for plotting
+cv <- 
+  as_tibble(coeffs) %>%
+  gather(nval, coeffs, -var) %>% 
+  mutate(coeffs = as.numeric(coeffs)) %>% 
+  mutate(lambda = rep(lasso.mod$lambda, rep(19, 100)))
+  
+p <-
+  cv %>% 
+  ggplot(aes(x = lambda, y = coeffs, group = var, label = var)) +
+  geom_line() +
+  labs(x = "log lambda") +
+  scale_x_log10(limits = c(-1, 100))
+
+plotly::ggplotly(p)
+
+# This is how the sample code plots
+plot(lasso.mod, xvar = "lambda", xlim = c(-1, 5))
+```
+
+* As seen from the few lines that are not near zero, there are just a few predictors that are important for predicting salary
+
+## c. 
+
+Now use cross-validation to choose the best $\lambda$.
+
+```{r}
+# Do cross-validation, using glmnet's function
+set.seed(1)
+
+# By default, uses 10-fold CV to find optimal lambda
+cv.out <- cv.glmnet(x, 
+                    y,
+                    type.measure = "mse", # Specify how cross validation will be evaluated
+                    alpha = 1)
+
+cv.df <-
+  tibble(lambda = cv.out$lambda, 
+         mse = cv.out$cvm, 
+         mse_l = cv.out$cvlo,  
+         mse_h = cv.out$cvup) 
+
+cv.df %>% 
+  ggplot(aes(x = lambda, y = mse)) + 
+  geom_point() +
+  scale_x_log10() +
+  geom_errorbar(aes(ymin = mse_l, ymax = mse_h))
+```
+
+## d. 
+
+Fit the final model using the best $\lambda$. What are the estimated coefficients? What predictors contribute to the model?
+
+```{r}
+# Fit a single model to the best lambda, predict the test set, and compute mse
+bestlam <- cv.out$lambda.min # Lambda that gave minimum MSE
+best1se <- cv.out$lambda.1se # Simplest model (i.e. model with fewest non-zero parameters)
+
+cv.out$cvm # Extract MSE
+
+# Model matrix for test set
+x_ts <- model.matrix(Salary ~ ., data = h_ts)[, -1] 
+
+# Response vector for test set
+y_ts <- h_ts$Salary
+
+# Predict using test set
+lasso.pred <- predict(lasso.mod, s = bestlam, newx = x_ts)
+
+# Compute MSE 
+mean((y_ts - lasso.pred)^2)
+```
+
+```{r, eval=FALSE}
+# Fit the model
+# Its strange that it still needs the grid of lambdas to fit
+# but it seems necessary for the optimisation.
+# Then the predictions for best lambda made with predict function
+
+out <- glmnet(x, y, alpha = 1, lambda = bestlam)
+
+# Extract beta coefficients from lasso regression
+lasso.coef <- predict(out, type = "coefficients", s = bestlam)[1:20, ] 
+
+# Extract non-zero coefficients 
+lasso.coef <- lasso.coef[lasso.coef != 0]
+
+# Extract predictions (y-hat) for test set
+lasso.pred <- test.mat[, names(lasso.coef)] %*% lasso.coef
+
+# Compute MSE 
+lasso.mse <- mean((y_ts - lasso.pred)^2)
+```
+
+* With the seed provided there are 13 non-zero coefficients, and an MSE of 93443.76.
+
+## e. 
+
+Does the best lasso model beat the best least squares model (best subsets)? 
+
+```{r}
+# --- MSE for test set
+min(val.errors) # Best subset selection
+lasso.mse # Lasso regression
+```
+
+* The best subsets performs better than the lasso. It has lower MSE.
+
+
+# 5. Making sense of it all
+
+Only one variable is very important for the model, which is it? (It occurs in every list of variables returned as important, and has the highest coefficient in the lasso model.) Several more variables frequently appear as important, which ones are these? Several others, appear occasionally in some models but always have very small coefficients. Can you name one of these? What does this tell you about the relationship between Salary and all the predictors?
+
+* `DivisionW` is by far the most important variable. It is always selected, and always has a large coefficient.
+
+* `AtBat`, `Hits`, `Walks` persistently appear with relatively small coefficients, and appear in the lasso.
+
+* `PutOuts`, `CBRI` and `Assists` appear regularly with really small coefficients.
+
+* In the lasso model, it is interesting that the variable `NewLeagueN` appears to be important, but it is the variable who's coefficient is reduced to 0 quickly. It also never shows up in any of the subset selection models. Also, years makes an appearance in the lasso model, and is included as a non-zero coefficient in the final model, which differs from all the subset selection models.
+
+* There is only one major variable useful for predicting salary, which is `DivisionW`.
+  * This variable alone provides most of the predictive power. Small gains are obtained by adding additional variables.
+
+### © Copyright 2022 Monash University
