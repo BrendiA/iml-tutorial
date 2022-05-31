@@ -44,11 +44,6 @@ tibble(x = seq(from = -2, to = 2, by = 1)) %>%
 # Chp.9 Q2
 
 ```{r}
-knitr::include_graphics(here::here("tutorial-12/images/chp09-q1.png"))
-```
-
-
-```{r}
 # --- Part (a)
 
 # Compute x2 using values from x1
