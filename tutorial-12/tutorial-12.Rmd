@@ -1,0 +1,156 @@
+---
+title: "tutorial-12"
+author: "Brendi Ang"
+date: '2022-05-23'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(knitr)
+
+ggplot2::theme_set(theme_bw())
+```
+
+# Chp.7 Q3
+
+```{r}
+# Create b2 basis function
+b2_func <- function(x){
+  if(x >= 1)
+  {
+    (x - 1) ^ 2
+  }
+  else {
+    0
+  }
+}
+
+# Create predictions using function
+y_hat <- function(x) {
+  1 + 1 * x+-2 * b2_func(x)
+}
+  
+tibble(x = seq(from = -2, to = 2, by = 1)) %>% 
+  rowwise() %>%
+  mutate(y = y_hat(x)) %>%
+  ggplot(aes(x = x, 
+             y = y)) +
+  geom_point()
+```
+
+# Chp.9 Q2
+
+```{r}
+knitr::include_graphics(here::here("tutorial-12/images/chp09-q1.png"))
+```
+
+
+```{r}
+# --- Part (a)
+
+# Compute x2 using values from x1
+compute_x2 <- 
+  function(x1){
+    1 + 3 * x1
+  }
+
+# Generate data 
+part_a <- 
+  tibble(x1_a = seq(-5, 5, by = 1)) %>% 
+  rowwise() %>% 
+  mutate(x2_a = compute_x2(x1_a)) %>% 
+  ungroup()  
+
+p <- part_a %>% 
+  ggplot() +
+  # Emphasise zero line
+  geom_hline(yintercept = 0,
+             colour = "grey50",
+             size = 2,
+             alpha = 0.3) +
+  # Draw hyperplane for part (a)
+  geom_line(aes(x = x1_a,
+                y = x2_a),
+            colour = "steelblue",
+            size = 1) +
+  # Include text indicating part(a)
+  geom_text(data = part_a %>% filter(x1_a == max(x1_a)),
+            aes(x = x1_a + 1,
+                y = x2_a),
+            label = "part a") +
+  labs(x = "x1",
+       y = "x2")
+p
+```
+
+```{r}
+# --- Part (b)
+
+# Compute x1 using values from x2
+compute_x1 <-
+  function(x2){
+    2 - 2 * x2
+  }
+
+# Generate data 
+part_b <-
+  tibble(x2_b = seq(-5, 5, by = 1)) %>% 
+  rowwise() %>% 
+  mutate(x1_b = compute_x1(x2_b), .before = x2_b) %>% 
+  ungroup()
+
+p +
+  # Draw hyperplane for part (b)
+  geom_line(data = part_b,
+            aes(x = x1_b,
+                y = x2_b),
+            size = 1,
+            colour = "salmon") +
+  # Include text indicating part(b)
+  geom_text(data = part_b %>% filter(x1_b == max(x1_b)),
+            aes(x = x1_b + 1,
+                y = x2_b),
+            label = "part b")
+```
+
+# Chp.10 Q2
+
+```{r}
+# --- Part(a)
+
+# Create distance matrix
+dist_mat <- matrix(c(0, 0.3, 0.4, 0.7,
+                     0.3, 0, 0.5, 0.8,
+                     0.4, 0.5, 0, 0.45,
+                     0.7, 0.8, 0.45, 0),
+               byrow = TRUE,
+               ncol = 4) %>% 
+  stats::as.dist()
+
+# Hierarchical clustering with complete
+hc_w <- hclust(dist_mat, method = "complete")
+
+# View dendrogram 
+ggdendro::ggdendrogram(hc_w, rotate = TRUE, size = 2)
+```
+
+```{r}
+# --- Part (b)
+
+# Hierarchical clustering with single
+hc_w <- hclust(dist_mat, method = "single")
+
+# View dendrogram 
+ggdendro::ggdendrogram(hc_w, rotate = TRUE, size = 2)
+```
+
+
+
+
+
+
+
+
